@@ -1,69 +1,59 @@
-use std::vec;
+use clap::{App, Arg};
+use regex::Regex;
+use std::fs::File;
+use std::io;
+use std::io::prelude::*;
+use std::io::BufReader;
+
+fn process_lines<T: BufRead + Sized>(reader: T, re: Regex) {
+    for line_ in reader.lines() {
+        let line = line_.unwrap();
+
+        // line is a String, but re.find() takes an &str as an argument
+        match re.find(&line) {
+            Some(_) => println!("{}", line),
+            None => (),
+        }
+    }
+}
 
 fn main() {
-    let ctx_lines = 2;
-    let needle = "oo";
+    // Incrementally builds a command argument parser, where each argument
+    // takes an Arg. In our case, we only need one.
+    let args = App::new("grep-lite")
+        .version("0.1")
+        .about("searches for patterns")
+        .arg(
+            Arg::with_name("pattern")
+                .help("The pattern to search for")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("input")
+                .help("File to search")
+                .takes_value(true)
+                .required(false),
+        )
+        .get_matches();
 
-    let haystack = "\
-Every face, every shop, 
-bedroom window, public-house, and
-dark square is a picture 
-feverishly turned--in search of what?
-It is the same with books.
-What do we seek 
-through millions of pages?";
+    // Extracts the pattern argument
+    let pattern = args.value_of("pattern").unwrap();
 
-    // tags holds line numbers where numbers matches occur.
-    let mut tags: Vec<usize> = vec![];
+    // unwrap() unwraps a Result, crashing if an errorss occurs.
+    let re = Regex::new(pattern).unwrap();
 
-    // ctx contains a vector per match to hold the context lines.
-    let mut ctx: Vec<Vec<(usize, String)>> = vec![];
+    let input = args.value_of("input").unwrap_or("-");
 
-    // Iterate through the lines, recording the numbers where matches
-    // are encountered.
-    for (i, line) in haystack.lines().enumerate() {
-        if line.contains(needle) {
-            tags.push(i);
-
-            // Vec::with_capacity(n) reserves space for n items. No explicit
-            // type signature is required as it can be inferred via the
-            // definition on line 20.
-            let v = Vec::with_capacity(2 * ctx_lines + 1);
-            ctx.push(v);
-        }
-    }
-
-    // When there are no matches, exits early
-    if tags.is_empty() {
-        return;
-    }
-
-    // For each tag, at every line, checks to see if we are near a match. When
-    // we are, adds that line to the relevant Vec<T> within ctx.
-    for (i, line) in haystack.lines().enumerate() {
-        for (j, tag) in tags.iter().enumerate() {
-            // saturating_sub() is subtraction that returns 0 on integer
-            // underflow rather than crashing the program (CPUs don't like
-            // attempting to send usize below zero).
-            let lower_bound = tag.saturating_sub(ctx_lines);
-            let upper_bound = tag + ctx_lines;
-
-            if (i >= lower_bound) && (i <= upper_bound) {
-                // Copies line into a new String and stores that locally for
-                // each match.
-                let line_as_string = String::from(line);
-                let local_ctx = (i, line_as_string);
-                ctx[j].push(local_ctx);
-            }
-        }
-    }
-
-    for local_ctx in ctx.iter() {
-        // ref line informs the compiler that we want to borrow this value
-        // rather than move it.
-        for &(i, ref line) in local_ctx.iter() {
-            let line_num = i + 1;
-            println!("{}: {}", line_num, line);
-        }
+    if input == "-" {
+        let stdin = io::stdin();
+        let reader = stdin.lock();
+        process_lines(reader, re);
+    } else {
+        // Creates a File object that requires a path argument and error handling
+        // if a input is not present
+        let f = File::open(input).unwrap();
+        let reader = BufReader::new(f);
+        process_lines(reader, re);
     }
 }
